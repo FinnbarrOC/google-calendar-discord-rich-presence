@@ -33,9 +33,8 @@ namespace GoogleCalendarDiscordRichPresence
             }
 
             Console.WriteLine(clientId);
-            _discord = new Discord.Discord(Int64.Parse(clientId), (UInt64)Discord.CreateFlags.Default);
-            _discord.SetLogHook(Discord.LogLevel.Info,
-                (level, message) => { Console.WriteLine("Log[{0}] {1}", level, message); });
+            _discord = new Discord.Discord(Int64.Parse(clientId), (UInt64)CreateFlags.Default);
+            _discord.SetLogHook(LogLevel.Info, (level, message) => { Console.WriteLine("Log[{0}] {1}", level, message); });
 
             UserManager userManager = _discord.GetUserManager();
             userManager.OnCurrentUserUpdate += () => Console.WriteLine(userManager.GetCurrentUser().Username);
@@ -43,38 +42,15 @@ namespace GoogleCalendarDiscordRichPresence
             Console.WriteLine($"Current locale: {_discord.GetApplicationManager().GetCurrentLocale()}");
 
             ActivityManager activityManager = _discord.GetActivityManager();
-            LobbyManager lobbyManager = _discord.GetLobbyManager();
 
-            Activity activity = new Discord.Activity
+            Activity activity = new()
             {
-                State = "In a Meeting",
-                Details = "details go here",
+                // Details = "details text",
                 Timestamps =
                 {
-                    Start = 5,
                     End = 6,
                 },
-                Assets =
-                {
-                    LargeImage = "foo largeImageKey",
-                    LargeText = "foo largeImageText",
-                    SmallImage = "foo smallImageKey",
-                    SmallText = "foo smallImageText",
-                },
-                Party =
-                {
-                    Id = "TheLobby",
-                    Size =
-                    {
-                        CurrentSize = 1,
-                        MaxSize = 16,
-                    },
-                },
-                Secrets =
-                {
-                    Join = "TheLobbySecret",
-                },
-                Instance = true,
+                Instance = false,
             };
 
             Console.WriteLine(activity);
@@ -103,8 +79,7 @@ namespace GoogleCalendarDiscordRichPresence
             {
                 UserCredential credential;
                 // Load client secrets.
-                using (FileStream stream =
-                       new FileStream("GoogleCalendarCredentials.json", FileMode.Open, FileAccess.Read))
+                using (FileStream stream = new("GoogleCalendarCredentials.json", FileMode.Open, FileAccess.Read))
                 {
                     /* The file token.json stores the user's access and refresh tokens, and is created
                      automatically when the authorization flow completes for the first time. */
@@ -119,7 +94,7 @@ namespace GoogleCalendarDiscordRichPresence
                 }
 
                 // Create Google Calendar API service.
-                CalendarService service = new CalendarService(new BaseClientService.Initializer
+                CalendarService service = new(new BaseClientService.Initializer
                 {
                     HttpClientInitializer = credential,
                     ApplicationName = ApplicationName
