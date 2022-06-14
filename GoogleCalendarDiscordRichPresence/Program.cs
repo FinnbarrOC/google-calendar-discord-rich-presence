@@ -1,45 +1,54 @@
 ﻿using System;
 using System.IO;
 using System.Threading;
+using Discord;
 using Google.Apis.Auth.OAuth2;
 using Google.Apis.Calendar.v3;
 using Google.Apis.Calendar.v3.Data;
 using Google.Apis.Services;
 using Google.Apis.Util.Store;
 
+// https://discord.com/developers/docs/game-sdk/sdk-starter-guide
+
 namespace GoogleCalendarDiscordRichPresence
 {
-    class Program
+    static class Program
     {
         /* Global instance of the scopes required by this quickstart.
          If modifying these scopes, delete your previously saved token.json/ folder. */
         static string[] Scopes = { CalendarService.Scope.CalendarReadonly };
         static string ApplicationName = "GoogleCalendarDiscordRichPresence";
-        
+
+        static Discord.Discord _discord;
+
         static void Main(string[] args)
         {
             Console.WriteLine("Hello World!");
-            
-            // Use your client ID from Discord's developer site.
-            var clientID = Environment.GetEnvironmentVariable("DISCORD_CLIENT_ID");
-            if (clientID == null)
-            {
-                clientID = "419212778889281536";
-            }
-            
-            Console.WriteLine(clientID);
-            var discord = new Discord.Discord(Int64.Parse(clientID), (UInt64)Discord.CreateFlags.Default);
-            discord.SetLogHook(Discord.LogLevel.Debug, (level, message) =>
-            {
-                Console.WriteLine("Log[{0}] {1}", level, message);
-            });
-            
-            var activityManager = discord.GetActivityManager();
 
-            var activity = new Discord.Activity
+            // Use your client ID from Discord's developer site.
+            string clientId = Environment.GetEnvironmentVariable("DISCORD_CLIENT_ID");
+            if (clientId == null)
             {
-                State = "olleh",
-                Details = "foo details",
+                clientId = "980199157388156938";
+            }
+
+            Console.WriteLine(clientId);
+            _discord = new Discord.Discord(Int64.Parse(clientId), (UInt64)Discord.CreateFlags.Default);
+            _discord.SetLogHook(Discord.LogLevel.Info,
+                (level, message) => { Console.WriteLine("Log[{0}] {1}", level, message); });
+
+            UserManager userManager = _discord.GetUserManager();
+            userManager.OnCurrentUserUpdate += () => Console.WriteLine(userManager.GetCurrentUser().Username);
+
+            Console.WriteLine($"Current locale: {_discord.GetApplicationManager().GetCurrentLocale()}");
+
+            ActivityManager activityManager = _discord.GetActivityManager();
+            LobbyManager lobbyManager = _discord.GetLobbyManager();
+
+            Activity activity = new Discord.Activity
+            {
+                State = "In a Meeting",
+                Details = "details go here",
                 Timestamps =
                 {
                     Start = 5,
@@ -52,26 +61,49 @@ namespace GoogleCalendarDiscordRichPresence
                     SmallImage = "foo smallImageKey",
                     SmallText = "foo smallImageText",
                 },
+                Party =
+                {
+                    Id = "TheLobby",
+                    Size =
+                    {
+                        CurrentSize = 1,
+                        MaxSize = 16,
+                    },
+                },
+                Secrets =
+                {
+                    Join = "TheLobbySecret",
+                },
                 Instance = true,
             };
-            
+
             Console.WriteLine(activity);
 
             activityManager.UpdateActivity(activity, result =>
             {
                 Console.WriteLine("Update Activity {0}", result);
+
+                Console.WriteLine(_discord.GetUserManager().GetCurrentUser().Username);
             });
 
             GoogleCalendarMain();
+
+            while (true)
+            {
+                _discord.RunCallbacks();
+
+                Thread.Sleep(50);
+            }
         }
 
+        // Based on https://developers.google.com/calendar/api/quickstart/dotnet
         static void GoogleCalendarMain()
         {
             try
             {
                 UserCredential credential;
                 // Load client secrets.
-                using (var stream =
+                using (FileStream stream =
                        new FileStream("GoogleCalendarCredentials.json", FileMode.Open, FileAccess.Read))
                 {
                     /* The file token.json stores the user's access and refresh tokens, and is created
@@ -87,7 +119,7 @@ namespace GoogleCalendarDiscordRichPresence
                 }
 
                 // Create Google Calendar API service.
-                var service = new CalendarService(new BaseClientService.Initializer
+                CalendarService service = new CalendarService(new BaseClientService.Initializer
                 {
                     HttpClientInitializer = credential,
                     ApplicationName = ApplicationName
@@ -109,13 +141,15 @@ namespace GoogleCalendarDiscordRichPresence
                     Console.WriteLine("No upcoming events found.");
                     return;
                 }
-                foreach (var eventItem in events.Items)
+
+                foreach (Event eventItem in events.Items)
                 {
                     string when = eventItem.Start.DateTime.ToString();
                     if (String.IsNullOrEmpty(when))
                     {
                         when = eventItem.Start.Date;
                     }
+
                     Console.WriteLine("{0} ({1})", eventItem.Summary, when);
                 }
             }
