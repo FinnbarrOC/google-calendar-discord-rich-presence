@@ -27,21 +27,43 @@ namespace GoogleCalendarDiscordRichPresence
         static ActivityManager _activityManager;
 
         static CalendarService _calendarService;
+
+        static readonly int _runCallbacksIntervalMs = 50;
+        static readonly int _refreshDiscordStatusIntervalMs = 60000;
+        static int _refreshDiscordStatusElapsedMs = 0;
+
+        static bool _hasDiscordInstance = false;
         
         static void Main(string[] args)
         {
             InitDiscordGameSdk();
             
             InitGoogleCalendarApi();
-            
-            Timer checkCalendarTimer = new(_ => UpdateStatusFromCalendar(), null, 
-                TimeSpan.Zero, TimeSpan.FromSeconds(5));
 
-            while (true)
+            try
             {
-                _discord.RunCallbacks();
+                while (true)
+                {
+                    if (_hasDiscordInstance)
+                    {
+                        _discord.RunCallbacks();
+                    }
+                    
+                    _refreshDiscordStatusElapsedMs += _runCallbacksIntervalMs;
 
-                Thread.Sleep(50);
+                    if (_refreshDiscordStatusElapsedMs >= _refreshDiscordStatusIntervalMs)
+                    {
+                        UpdateStatusFromCalendar();
+                    
+                        _refreshDiscordStatusElapsedMs = 0;
+                    }
+                
+                    Thread.Sleep(_runCallbacksIntervalMs);
+                }
+            }
+            catch (Exception e)
+            {
+                Console.Error.WriteLine(e);
             }
         }
 
@@ -51,6 +73,8 @@ namespace GoogleCalendarDiscordRichPresence
             _discord.SetLogHook(LogLevel.Info, (level, message) => { Console.WriteLine("Log[{0}] {1}", level, message); });
             
             _activityManager = _discord.GetActivityManager();
+
+            _hasDiscordInstance = true;
         }
 
         static void InitGoogleCalendarApi()
@@ -92,10 +116,19 @@ namespace GoogleCalendarDiscordRichPresence
             
             if (nextFreeTime == default)
             {
-                _activityManager.ClearActivity(result => {Console.WriteLine($"ClearActivity: {result}");});
+                if (_hasDiscordInstance)
+                {
+                    _discord.Dispose();
+                    _hasDiscordInstance = false;
+                }
             }
             else
             {
+                if (!_hasDiscordInstance)
+                {
+                    InitDiscordGameSdk();
+                }
+                
                 Activity activity = new()
                 {
                     // Details = "details text",
@@ -106,7 +139,7 @@ namespace GoogleCalendarDiscordRichPresence
                     Instance = false,
                 };
                 
-                _activityManager.UpdateActivity(activity, result => {Console.WriteLine($"UpdateActivity: {result}");});
+                _activityManager.UpdateActivity(activity, _ => { });
             }
         }
 
