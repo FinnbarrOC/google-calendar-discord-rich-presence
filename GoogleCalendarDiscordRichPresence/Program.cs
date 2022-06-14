@@ -8,61 +8,34 @@ using Google.Apis.Calendar.v3.Data;
 using Google.Apis.Services;
 using Google.Apis.Util.Store;
 
+// References:
 // https://discord.com/developers/docs/game-sdk/sdk-starter-guide
+// https://developers.google.com/calendar/api/quickstart/dotnet
 
 namespace GoogleCalendarDiscordRichPresence
 {
     static class Program
     {
+        static Int64 DiscordClientId = 980199157388156938;  // Use your client ID from Discord's developer site.
+        
         /* Global instance of the scopes required by this quickstart.
          If modifying these scopes, delete your previously saved token.json/ folder. */
         static string[] Scopes = { CalendarService.Scope.CalendarReadonly };
         static string ApplicationName = "GoogleCalendarDiscordRichPresence";
 
         static Discord.Discord _discord;
+        static ActivityManager _activityManager;
 
+        static CalendarService _calendarService;
+        
         static void Main(string[] args)
         {
-            Console.WriteLine("Hello World!");
-
-            // Use your client ID from Discord's developer site.
-            string clientId = Environment.GetEnvironmentVariable("DISCORD_CLIENT_ID");
-            if (clientId == null)
-            {
-                clientId = "980199157388156938";
-            }
-
-            Console.WriteLine(clientId);
-            _discord = new Discord.Discord(Int64.Parse(clientId), (UInt64)CreateFlags.Default);
-            _discord.SetLogHook(LogLevel.Info, (level, message) => { Console.WriteLine("Log[{0}] {1}", level, message); });
-
-            UserManager userManager = _discord.GetUserManager();
-            userManager.OnCurrentUserUpdate += () => Console.WriteLine(userManager.GetCurrentUser().Username);
-
-            Console.WriteLine($"Current locale: {_discord.GetApplicationManager().GetCurrentLocale()}");
-
-            ActivityManager activityManager = _discord.GetActivityManager();
-
-            Activity activity = new()
-            {
-                // Details = "details text",
-                Timestamps =
-                {
-                    End = 6,
-                },
-                Instance = false,
-            };
-
-            Console.WriteLine(activity);
-
-            activityManager.UpdateActivity(activity, result =>
-            {
-                Console.WriteLine("Update Activity {0}", result);
-
-                Console.WriteLine(_discord.GetUserManager().GetCurrentUser().Username);
-            });
-
-            GoogleCalendarMain();
+            InitDiscordGameSdk();
+            
+            InitGoogleCalendarApi();
+            
+            Timer checkCalendarTimer = new(_ => UpdateStatusFromCalendar(), null, 
+                TimeSpan.Zero, TimeSpan.FromMinutes(1));
 
             while (true)
             {
@@ -72,8 +45,15 @@ namespace GoogleCalendarDiscordRichPresence
             }
         }
 
-        // Based on https://developers.google.com/calendar/api/quickstart/dotnet
-        static void GoogleCalendarMain()
+        static void InitDiscordGameSdk()
+        {
+            _discord = new Discord.Discord(DiscordClientId, (UInt64)CreateFlags.Default);
+            _discord.SetLogHook(LogLevel.Info, (level, message) => { Console.WriteLine("Log[{0}] {1}", level, message); });
+            
+            _activityManager = _discord.GetActivityManager();
+        }
+
+        static void InitGoogleCalendarApi()
         {
             try
             {
@@ -94,43 +74,67 @@ namespace GoogleCalendarDiscordRichPresence
                 }
 
                 // Create Google Calendar API service.
-                CalendarService service = new(new BaseClientService.Initializer
+                _calendarService = new(new BaseClientService.Initializer
                 {
                     HttpClientInitializer = credential,
                     ApplicationName = ApplicationName
                 });
-
-                // Define parameters of request.
-                EventsResource.ListRequest request = service.Events.List("primary");
-                request.TimeMin = DateTime.Now;
-                request.ShowDeleted = false;
-                request.SingleEvents = true;
-                request.MaxResults = 10;
-                request.OrderBy = EventsResource.ListRequest.OrderByEnum.StartTime;
-
-                // List events.
-                Events events = request.Execute();
-                Console.WriteLine("Upcoming events:");
-                if (events.Items == null || events.Items.Count == 0)
-                {
-                    Console.WriteLine("No upcoming events found.");
-                    return;
-                }
-
-                foreach (Event eventItem in events.Items)
-                {
-                    string when = eventItem.Start.DateTime.ToString();
-                    if (String.IsNullOrEmpty(when))
-                    {
-                        when = eventItem.Start.Date;
-                    }
-
-                    Console.WriteLine("{0} ({1})", eventItem.Summary, when);
-                }
             }
             catch (FileNotFoundException e)
             {
-                Console.WriteLine(e.Message);
+                Console.Error.WriteLine(e.Message);
+            }
+        }
+        
+        static void UpdateStatusFromCalendar()
+        {
+            Activity activity = new()
+            {
+                // Details = "details text",
+                Timestamps =
+                {
+                    End = ((DateTimeOffset)GetNextFreeTime()).ToUnixTimeSeconds(),
+                },
+                Instance = false,
+            };
+            
+            _activityManager.UpdateActivity(activity, result =>
+            {
+                Console.WriteLine("Update Activity {0}", result);
+            });
+        }
+
+        static DateTime GetNextFreeTime()
+        {
+            // Define parameters of request.
+            EventsResource.ListRequest request = _calendarService.Events.List("primary");
+            request.TimeMin = DateTime.Now;
+            request.ShowDeleted = false;
+            request.SingleEvents = true;
+            request.MaxResults = 10;
+            request.OrderBy = EventsResource.ListRequest.OrderByEnum.StartTime;
+            
+            Events events = request.Execute();
+            
+            if (events.Items == null || events.Items.Count == 0)
+            {
+                return DateTime.UtcNow;
+            }
+            
+            // TODO: if the next meeting hasn't started yet, don't mark user as in a meeting
+            // TODO: go through all meetings and find end of all meetings if they flow into each other
+
+            return events.Items[0].End.DateTime.GetValueOrDefault();
+
+            foreach (Event eventItem in events.Items)
+            {
+                string when = eventItem.Start.DateTime.ToString();
+                if (String.IsNullOrEmpty(when))
+                {
+                    when = eventItem.Start.Date;
+                }
+
+                Console.WriteLine("{0} ({1})", eventItem.Summary, when);
             }
         }
     }
