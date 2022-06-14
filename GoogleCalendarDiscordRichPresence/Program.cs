@@ -16,12 +16,12 @@ namespace GoogleCalendarDiscordRichPresence
 {
     static class Program
     {
-        static Int64 DiscordClientId = 980199157388156938;  // Use your client ID from Discord's developer site.
+        static readonly Int64 _discordClientId = 980199157388156938;  // Use your client ID from Discord's developer site.
         
         /* Global instance of the scopes required by this quickstart.
          If modifying these scopes, delete your previously saved token.json/ folder. */
-        static string[] Scopes = { CalendarService.Scope.CalendarReadonly };
-        static string ApplicationName = "GoogleCalendarDiscordRichPresence";
+        static readonly string[] Scopes = { CalendarService.Scope.CalendarReadonly };
+        static readonly string ApplicationName = "GoogleCalendarDiscordRichPresence";
 
         static Discord.Discord _discord;
         static ActivityManager _activityManager;
@@ -35,7 +35,7 @@ namespace GoogleCalendarDiscordRichPresence
             InitGoogleCalendarApi();
             
             Timer checkCalendarTimer = new(_ => UpdateStatusFromCalendar(), null, 
-                TimeSpan.Zero, TimeSpan.FromMinutes(1));
+                TimeSpan.Zero, TimeSpan.FromSeconds(5));
 
             while (true)
             {
@@ -47,7 +47,7 @@ namespace GoogleCalendarDiscordRichPresence
 
         static void InitDiscordGameSdk()
         {
-            _discord = new Discord.Discord(DiscordClientId, (UInt64)CreateFlags.Default);
+            _discord = new Discord.Discord(_discordClientId, (UInt64)CreateFlags.Default);
             _discord.SetLogHook(LogLevel.Info, (level, message) => { Console.WriteLine("Log[{0}] {1}", level, message); });
             
             _activityManager = _discord.GetActivityManager();
@@ -88,20 +88,26 @@ namespace GoogleCalendarDiscordRichPresence
         
         static void UpdateStatusFromCalendar()
         {
-            Activity activity = new()
-            {
-                // Details = "details text",
-                Timestamps =
-                {
-                    End = ((DateTimeOffset)GetNextFreeTime()).ToUnixTimeSeconds(),
-                },
-                Instance = false,
-            };
+            DateTime nextFreeTime = GetNextFreeTime();
             
-            _activityManager.UpdateActivity(activity, result =>
+            if (nextFreeTime == default)
             {
-                Console.WriteLine("Update Activity {0}", result);
-            });
+                _activityManager.ClearActivity(result => {Console.WriteLine($"ClearActivity: {result}");});
+            }
+            else
+            {
+                Activity activity = new()
+                {
+                    // Details = "details text",
+                    Timestamps =
+                    {
+                        End = ((DateTimeOffset)nextFreeTime).ToUnixTimeSeconds(),
+                    },
+                    Instance = false,
+                };
+                
+                _activityManager.UpdateActivity(activity, result => {Console.WriteLine($"UpdateActivity: {result}");});
+            }
         }
 
         static DateTime GetNextFreeTime()
@@ -109,7 +115,6 @@ namespace GoogleCalendarDiscordRichPresence
             // Define parameters of request.
             EventsResource.ListRequest request = _calendarService.Events.List("primary");
             request.TimeMin = DateTime.Now;
-            request.ShowDeleted = false;
             request.SingleEvents = true;
             request.MaxResults = 10;
             request.OrderBy = EventsResource.ListRequest.OrderByEnum.StartTime;
@@ -118,24 +123,30 @@ namespace GoogleCalendarDiscordRichPresence
             
             if (events.Items == null || events.Items.Count == 0)
             {
-                return DateTime.UtcNow;
+                return default;  // Calendar is empty, so user is not in a meeting
             }
             
-            // TODO: if the next meeting hasn't started yet, don't mark user as in a meeting
-            // TODO: go through all meetings and find end of all meetings if they flow into each other
-
-            return events.Items[0].End.DateTime.GetValueOrDefault();
-
+            if (events.Items[0].Start.DateTime.HasValue && events.Items[0].Start.DateTime.Value > DateTime.Now)
+            {
+                return default;  // The next upcoming meeting hasn't started yet, so user is not in a meeting
+            }
+            
+            DateTime soonestEndTime = events.Items[0].Start.DateTime.GetValueOrDefault();
+            
+            // If the end of one event is the same as the start time of the next event, then find final end time
             foreach (Event eventItem in events.Items)
             {
-                string when = eventItem.Start.DateTime.ToString();
-                if (String.IsNullOrEmpty(when))
+                if (eventItem.Start.DateTime.GetValueOrDefault() == soonestEndTime)
                 {
-                    when = eventItem.Start.Date;
+                    soonestEndTime = eventItem.End.DateTime.GetValueOrDefault();
                 }
-
-                Console.WriteLine("{0} ({1})", eventItem.Summary, when);
+                else
+                {
+                    break;
+                }
             }
+
+            return soonestEndTime;
         }
     }
 }
